@@ -31,6 +31,11 @@
    call strcmp
    jc .help
  
+   mov si, buffer
+   mov di, cmd_foo
+   call strcmp
+   jc .foo
+
    mov si,badcommand
    call print_string 
    jmp mainloop  
@@ -46,14 +51,22 @@
    call print_string
  
    jmp mainloop
- 
+
+ .foo: 
+   mov si, msg_foo
+   call print_string
+
+   jmp mainloop
+
  welcome db 'Welcome to My OS!', 0x0D, 0x0A, 0
  msg_helloworld db 'Hello OSDev World!', 0x0D, 0x0A, 0
  badcommand db 'Bad command entered.', 0x0D, 0x0A, 0
- prompt db '>', 0
+ prompt db '->', 0
  cmd_hi db 'hi', 0
  cmd_help db 'help', 0
- msg_help db 'My OS: Commands: hi, help', 0x0D, 0x0A, 0
+ cmd_foo db 'foo', 0
+ msg_help db 'My OS: Commands: hi, help, foo', 0x0D, 0x0A, 0
+ msg_foo db 'foo foo foo', 0x0D, 0x0A, 0
  buffer times 64 db 0
  
  ; ================
