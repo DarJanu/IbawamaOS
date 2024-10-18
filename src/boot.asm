@@ -36,6 +36,12 @@
    call strcmp
    jc .foo
 
+   mov si, buffer
+   mov di, cmd_fib
+   call strcmp
+   jc .fib
+
+
    mov si,badcommand
    call print_string 
    jmp mainloop  
@@ -58,6 +64,12 @@
 
    jmp mainloop
 
+ .fib:
+   call fibcalc   
+   
+   jmp mainloop
+
+
  welcome db 'Welcome to My OS!', 0x0D, 0x0A, 0
  msg_helloworld db 'Hello OSDev World!', 0x0D, 0x0A, 0
  badcommand db 'Bad command entered.', 0x0D, 0x0A, 0
@@ -65,6 +77,7 @@
  cmd_hi db 'hi', 0
  cmd_help db 'help', 0
  cmd_foo db 'foo', 0
+ cmd_fib db 'fib', 0
  msg_help db 'My OS: Commands: hi, help, foo', 0x0D, 0x0A, 0
  msg_foo db 'foo foo foo', 0x0D, 0x0A, 0
  buffer times 64 db 0
@@ -73,6 +86,31 @@
  ; calls start here
  ; ================
  
+fibcalc:
+   xor ax, ax
+   xor cx, cx
+   xor bx, bx
+   mov bl, 1
+ 
+ .loop:
+   add al,bl
+   mov bl,al
+   push al
+   push bl
+ .conv:
+   xor dx,dx      
+   div 10
+
+                  ;add some conversion shiz
+   stosb
+   test al, al
+   jnz .conv
+
+
+   inc cx
+   cmp cx, 5
+   jle .loop
+
  print_string:
    lodsb        ; grab a byte from SI
  
