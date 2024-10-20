@@ -90,26 +90,37 @@ fibcalc:
    xor ax, ax
    xor cx, cx
    xor bx, bx
-   mov bl, 1
- 
+   mov bx, 1
  .loop:
-   add al,bl
-   mov bl,al
-   push al
-   push bl
+   mov si, buffer
+   xadd ax,bx
+   push ax
+   push bx
  .conv:
-   xor dx,dx      
-   div 10
-
-                  ;add some conversion shiz
+   xor dx,dx
+   push cx
+   mov cx, 10    
+   div cx
+   pop cx
+   push ax   
+   mov ax, dx
+   add ax, '0'
    stosb
-   test al, al
+   pop ax
+   test ax, ax
    jnz .conv
-
+   mov ax, 0x2C
+   stosb 
+   mov si, buffer
+   call print_string
+   pop bx
+   pop ax
 
    inc cx
-   cmp cx, 5
+   cmp cx, 10
    jle .loop
+   ret
+
 
  print_string:
    lodsb        ; grab a byte from SI
