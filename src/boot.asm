@@ -81,6 +81,7 @@
  msg_help db 'My OS: Commands: hi, help, foo', 0x0D, 0x0A, 0
  msg_foo db 'foo foo foo', 0x0D, 0x0A, 0
  buffer times 64 db 0
+ buffer2 times 64 db 0
  
  ; ================
  ; calls start here
@@ -88,38 +89,44 @@
  
 fibcalc:
    xor ax, ax
-   xor cx, cx
-   xor bx, bx
    mov bx, 1
- .loop:
-   mov si, buffer
+   mov cx, 10
+  .loop:
    xadd ax,bx
    push ax
    push bx
- .conv:
-   xor dx,dx
    push cx
-   mov cx, 10    
-   div cx
-   pop cx
-   push ax   
-   mov ax, dx
-   add ax, '0'
-   stosb
-   pop ax
-   test ax, ax
-   jnz .conv
-   mov ax, 0x2C
-   stosb 
-   mov si, buffer
+   call conv_string
+   lea si, buffer
    call print_string
+   pop cx
    pop bx
    pop ax
+   loop .loop
 
-   inc cx
-   cmp cx, 10
-   jle .loop
-   ret
+
+
+conv_string:
+    mov ecx, 10         ; divisor
+    xor bx, bx          ; count digits
+
+  .divide:
+    xor edx, edx        ; high part = 0
+    div ecx             ; eax = edx:eax/ecx, edx = remainder
+    push dx             ; DL is a digit in range [0..9]
+    inc bx              ; count digits
+    test eax, eax       ; EAX is 0?
+    jnz .divide          ; no, continue
+
+    ; POP digits from stack in reverse order
+    mov cx, bx          ; number of digits
+    lea si, buffer   ; DS:SI points to string buffer
+  .next_digit:
+    pop ax
+    add al, '0'         ; convert to ASCII
+    mov [si], al        ; write it to the buffer
+    inc si
+    loop .next_digit
 
 
  print_string:
@@ -133,13 +140,13 @@ fibcalc:
  
    jmp print_string
  
- .done:
+  .done:
    ret
  
- get_string:
+get_string:
    xor cl, cl
  
- .loop:
+  .loop:
    mov ah, 0
    int 0x16   ; wait for keypress
  
@@ -159,7 +166,7 @@ fibcalc:
    inc cl
    jmp .loop
  
- .backspace:
+  .backspace:
    cmp cl, 0	; beginning of string?
    je .loop	; yes, ignore the key
  
@@ -179,7 +186,7 @@ fibcalc:
  
    jmp .loop	; go to the main loop
  
- .done:
+  .done:
    mov al, 0	; null terminator
    stosb
  
@@ -191,8 +198,8 @@ fibcalc:
  
    ret
  
- strcmp:
- .loop:
+strcmp:
+  .loop:
    mov al, [si]   ; grab a byte from SI
    mov bl, [di]   ; grab a byte from DI
    cmp al, bl     ; are they equal?
