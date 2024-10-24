@@ -1,224 +1,90 @@
- org 0x7C00   ; add 0x7C00 to label addresses
- bits 16      ; tell the assembler we want 16 bit code
+; Declare constants for the multiboot header.
+MBALIGN  equ  1 << 0            ; align loaded modules on page boundaries
+MEMINFO  equ  1 << 1            ; provide memory map
+MBFLAGS  equ  MBALIGN | MEMINFO ; this is the Multiboot 'flag' field
+MAGIC    equ  0x1BADB002        ; 'magic number' lets bootloader find the header
+CHECKSUM equ -(MAGIC + MBFLAGS)   ; checksum of above, to prove we are multiboot
 
-   mov ax, 0  ; set up segments
-   mov ds, ax
-   mov es, ax
-   mov ss, ax     ; setup stack
-   mov sp, 0x7C00 ; stack grows downwards from 0x7C00
- 
-   mov si, welcome
-   call print_string
- 
- mainloop:
-   mov si, prompt
-   call print_string
- 
-   mov di, buffer
-   call get_string
- 
-   mov si, buffer
-   cmp byte [si], 0  ; blank line?
-   je mainloop       ; yes, ignore it
- 
-   mov si, buffer
-   mov di, cmd_hi  ; "hi" command
-   call strcmp
-   jc .helloworld
- 
-   mov si, buffer
-   mov di, cmd_help  ; "help" command
-   call strcmp
-   jc .help
- 
-   mov si, buffer
-   mov di, cmd_foo
-   call strcmp
-   jc .foo
+; Declare a multiboot header that marks the program as a kernel. These are magic
+; values that are documented in the multiboot standard. The bootloader will
+; search for this signature in the first 8 KiB of the kernel file, aligned at a
+; 32-bit boundary. The signature is in its own section so the header can be
+; forced to be within the first 8 KiB of the kernel file.
+section .multiboot
+align 4
+	dd MAGIC
+	dd MBFLAGS
+	dd CHECKSUM
 
-   mov si, buffer
-   mov di, cmd_fib
-   call strcmp
-   jc .fib
+; The multiboot standard does not define the value of the stack pointer register
+; (esp) and it is up to the kernel to provide a stack. This allocates room for a
+; small stack by creating a symbol at the bottom of it, then allocating 16384
+; bytes for it, and finally creating a symbol at the top. The stack grows
+; downwards on x86. The stack is in its own section so it can be marked nobits,
+; which means the kernel file is smaller because it does not contain an
+; uninitialized stack. The stack on x86 must be 16-byte aligned according to the
+; System V ABI standard and de-facto extensions. The compiler will assume the
+; stack is properly aligned and failure to align the stack will result in
+; undefined behavior.
+section .bss
+align 16
+stack_bottom:
+resb 16384 ; 16 KiB
+stack_top:
 
+; The linker script specifies _start as the entry point to the kernel and the
+; bootloader will jump to this position once the kernel has been loaded. It
+; doesn't make sense to return from this function as the bootloader is gone.
+; Declare _start as a function symbol with the given symbol size.
+section .text
+global _start:function (_start.end - _start)
+_start:
+	; The bootloader has loaded us into 32-bit protected mode on a x86
+	; machine. Interrupts are disabled. Paging is disabled. The processor
+	; state is as defined in the multiboot standard. The kernel has full
+	; control of the CPU. The kernel can only make use of hardware features
+	; and any code it provides as part of itself. There's no printf
+	; function, unless the kernel provides its own <stdio.h> header and a
+	; printf implementation. There are no security restrictions, no
+	; safeguards, no debugging mechanisms, only what the kernel provides
+	; itself. It has absolute and complete power over the
+	; machine.
 
-   mov si,badcommand
-   call print_string 
-   jmp mainloop  
- 
- .helloworld:
-   mov si, msg_helloworld
-   call print_string
- 
-   jmp mainloop
- 
- .help:
-   mov si, msg_help
-   call print_string
- 
-   jmp mainloop
+	; To set up a stack, we set the esp register to point to the top of our
+	; stack (as it grows downwards on x86 systems). This is necessarily done
+	; in assembly as languages such as C cannot function without a stack.
+	mov esp, stack_top
 
- .foo: 
-   mov si, msg_foo
-   call print_string
+	; This is a good place to initialize crucial processor state before the
+	; high-level kernel is entered. It's best to minimize the early
+	; environment where crucial features are offline. Note that the
+	; processor is not fully initialized yet: Features such as floating
+	; point instructions and instruction set extensions are not initialized
+	; yet. The GDT should be loaded here. Paging should be enabled here.
+	; C++ features such as global constructors and exceptions will require
+	; runtime support to work as well.
 
-   jmp mainloop
+	; Enter the high-level kernel. The ABI requires the stack is 16-byte
+	; aligned at the time of the call instruction (which afterwards pushes
+	; the return pointer of size 4 bytes). The stack was originally 16-byte
+	; aligned above and we've since pushed a multiple of 16 bytes to the
+	; stack since (pushed 0 bytes so far) and the alignment is thus
+	; preserved and the call is well defined.
+        ; note, that if you are building on Windows, C functions may have "_" prefix in assembly: _kernel_main
+	extern kernel_main
+	call kernel_main
 
- .fib:
-   call fibcalc   
-   
-   jmp mainloop
-
-
- welcome db 'Welcome to My OS!', 0x0D, 0x0A, 0
- msg_helloworld db 'Hello OSDev World!', 0x0D, 0x0A, 0
- badcommand db 'Bad command entered.', 0x0D, 0x0A, 0
- prompt db '->', 0
- cmd_hi db 'hi', 0
- cmd_help db 'help', 0
- cmd_foo db 'foo', 0
- cmd_fib db 'fib', 0
- msg_help db 'My OS: Commands: hi, help, foo', 0x0D, 0x0A, 0
- msg_foo db 'foo foo foo', 0x0D, 0x0A, 0
- buffer times 64 db 0
- buffer2 times 64 db 0
- 
- ; ================
- ; calls start here
- ; ================
- 
-fibcalc:
-   xor ax, ax
-   mov bx, 1
-   mov cx, 10
-  .loop:
-   xadd ax,bx
-   push ax
-   push bx
-   push cx
-   call conv_string
-   lea si, buffer
-   call print_string
-   pop cx
-   pop bx
-   pop ax
-   loop .loop
-
-
-
-conv_string:
-    mov ecx, 10         ; divisor
-    xor bx, bx          ; count digits
-
-  .divide:
-    xor edx, edx        ; high part = 0
-    div ecx             ; eax = edx:eax/ecx, edx = remainder
-    push dx             ; DL is a digit in range [0..9]
-    inc bx              ; count digits
-    test eax, eax       ; EAX is 0?
-    jnz .divide          ; no, continue
-
-    ; POP digits from stack in reverse order
-    mov cx, bx          ; number of digits
-    lea si, buffer   ; DS:SI points to string buffer
-  .next_digit:
-    pop ax
-    add al, '0'         ; convert to ASCII
-    mov [si], al        ; write it to the buffer
-    inc si
-    loop .next_digit
-
-
- print_string:
-   lodsb        ; grab a byte from SI
- 
-   or al, al  ; logical or AL by itself
-   jz .done   ; if the result is zero, get out
- 
-   mov ah, 0x0E
-   int 0x10      ; otherwise, print out the character!
- 
-   jmp print_string
- 
-  .done:
-   ret
- 
-get_string:
-   xor cl, cl
- 
-  .loop:
-   mov ah, 0
-   int 0x16   ; wait for keypress
- 
-   cmp al, 0x08    ; backspace pressed?
-   je .backspace   ; yes, handle it
- 
-   cmp al, 0x0D  ; enter pressed?
-   je .done      ; yes, we're done
- 
-   cmp cl, 0x3F  ; 63 chars inputted?
-   je .loop      ; yes, only let in backspace and enter
- 
-   mov ah, 0x0E
-   int 0x10      ; print out character
- 
-   stosb  ; put character in buffer
-   inc cl
-   jmp .loop
- 
-  .backspace:
-   cmp cl, 0	; beginning of string?
-   je .loop	; yes, ignore the key
- 
-   dec di
-   mov byte [di], 0	; delete character
-   dec cl		; decrement counter as well
- 
-   mov ah, 0x0E
-   mov al, 0x08
-   int 10h		; backspace on the screen
- 
-   mov al, ' '
-   int 10h		; blank character out
- 
-   mov al, 0x08
-   int 10h		; backspace again
- 
-   jmp .loop	; go to the main loop
- 
-  .done:
-   mov al, 0	; null terminator
-   stosb
- 
-   mov ah, 0x0E
-   mov al, 0x0D
-   int 0x10
-   mov al, 0x0A
-   int 0x10		; newline
- 
-   ret
- 
-strcmp:
-  .loop:
-   mov al, [si]   ; grab a byte from SI
-   mov bl, [di]   ; grab a byte from DI
-   cmp al, bl     ; are they equal?
-   jne .notequal  ; nope, we're done.
- 
-   cmp al, 0  ; are both bytes (they were equal before) null?
-   je .done   ; yes, we're done.
- 
-   inc di     ; increment DI
-   inc si     ; increment SI
-   jmp .loop  ; loop!
- 
- .notequal:
-   clc  ; not equal, clear the carry flag
-   ret
- 
- .done: 	
-   stc  ; equal, set the carry flag
-   ret
- 
-   times 510-($-$$) db 0
-   dw 0AA55h ; some BIOSes require this signature
+	; If the system has nothing more to do, put the computer into an
+	; infinite loop. To do that:
+	; 1) Disable interrupts with cli (clear interrupt enable in eflags).
+	;    They are already disabled by the bootloader, so this is not needed.
+	;    Mind that you might later enable interrupts and return from
+	;    kernel_main (which is sort of nonsensical to do).
+	; 2) Wait for the next interrupt to arrive with hlt (halt instruction).
+	;    Since they are disabled, this will lock up the computer.
+	; 3) Jump to the hlt instruction if it ever wakes up due to a
+	;    non-maskable interrupt occurring or due to system management mode.
+	cli
+.hang:	hlt
+	jmp .hang
+.end:
